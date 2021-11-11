@@ -1,0 +1,4 @@
+.idea/
+*.txt
+data/model*/*
+__pycache__/
