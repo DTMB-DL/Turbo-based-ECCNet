@@ -21,8 +21,6 @@ def get_modem(num):
         return 'QPSK', np.sqrt(2)
     elif num == 16:
         return '16QAM', np.sqrt(10)
-    elif num == 64:
-        return '64QAM', np.sqrt(42)
 
 
 def start_matlab():
@@ -39,57 +37,57 @@ def baseline(args, bers, mode="unquantized"):
     BER = []
     for snr in SNR:
         snrtmp = snr
-        snr += 10 * np.log10(np.log2(args.modem_num) / (5*args.G) / 3)
+
         ber = 0.0
         for idx in range(B):
             s = bers[idx]
-            s1 = eng.lteTurboEncode(matlab.int8(s.tolist()))
-            s1 = np.array(s1).reshape(-1)
-
-            x = eng.lteSymbolModulate(matlab.int8(s1.tolist()), modem)
-            x = x * np.sqrt(1.0)
-            xx = torch.tensor([x.real.reshape(-1).tolist(), x.imag.reshape(-1).tolist()]).to(device).reshape(2, 1, -1)
+            ss = eng.lteTurboEncode(matlab.int8(s.tolist()))
+            x = eng.lteSymbolModulate(ss, modem)
+            x = torch.tensor(x).reshape(-1)
+            xx = torch.stack((x.real, x.imag), axis=0).reshape(2, 1, -1).to(device)
             tx = pulse_shaping(xx, ISI=1, rate=5 * args.G)
-            [ry, sigma2] = awgn_channel(tx, snr)
+            [ry, sigma2] = channel(args.channel_mode, tx,
+                                   snr + 10 * np.log10(np.log2(args.modem_num) / (tx.shape[2] / xx.shape[2]) / 3),
+                                   rate=5 * args.G)
             y = matched_filtering(ry, ISI=1, rate=5 * args.G)
 
             if mode == 'quantized':
-                r = quantize(y, 1, args.modem_num)
-                r /= torch.tensor(base)
+                args.qua_bit = 1
+                r = quantize(y, args.qua_bit, args.modem_num)
+                r /= torch.tensor(base) / (args.qua_bit+1)
+                # r /= 0.903587241348152  # 3bit
+                # r /= 0.843348091924942  # 4bit
             elif mode == 'unquantized':
                 r = y
-
-            r = np.array(r.cpu())
-            z = np.zeros(r.shape[2], dtype='complex')
-            z.real = r[0][0]
-            z.imag = r[1][0]
-
+            z = r[0][0] + 1j * r[1][0]
             s2 = eng.lteSymbolDemodulate(matlab.double(z.tolist(), is_complex=True), modem, 'Soft')
             s_hat = eng.lteTurboDecode(s2)
             s_hat = np.array(s_hat).reshape(-1)
             ber += np.sum(s != s_hat[:args.len])
 
-        ber /= B*args.len
+        ber /= B * args.len
         BER.append(ber)
         print("snr %f, ber is :%f:" % (snrtmp, ber))
 
     eng.quit()
     if not os.path.exists('./data'):
         os.mkdir('./data')
-    np.savez('./data/'+mode+'_'+str(args.modem_num), snr=SNR, ber=np.array(BER))
-    print("%s.npz is saved" % (mode+'_'+str(args.modem_num)))
+    np.savez('./data/' + mode + '_' + args.channel_mode + '_' + str(args.modem_num), snr=SNR, ber=np.array(BER))
+    print("%s.npz is saved" % (mode + '_' + args.channel_mode + '_' + str(args.modem_num)))
+
 
 
 def cnn_test(args, bers):
-    path = 'data/model_cnn_'+str(args.modem_num)
+    path = 'data/model_cnn_'+args.channel_mode+'_'+str(args.modem_num)
     eng = matlab.engine.start_matlab()
     eng.addpath('./traditional')
     SNR = get_snr(args.snr_start, args.snr_step, args.snr_end)  # range of SNR
+    modem, base = get_modem(args.modem_num)
     B = bers.shape[0]
+    N = args.N // int(np.log2(args.modem_num))
     BER = []
-
-    encoder = torch.load(path + '/best_encoder.pth')
-    decoder = torch.load(path + '/best_decoder.pth')
+    encoder = torch.load(path + '/best_encoder.pth', map_location='cuda:0')
+    decoder = torch.load(path + '/best_decoder.pth', map_location='cuda:0')
     encoder.to(device)
     decoder.to(device)
     encoder.eval()
@@ -97,28 +95,26 @@ def cnn_test(args, bers):
 
     for snr in SNR:
         snrtmp = snr
-        snr += 10 * np.log10(np.log2(args.modem_num) / (5 * args.G) / 3)
         ber = 0.0
         with torch.no_grad():
             for idx in range(B):
                 s = bers[idx]
                 ss = eng.lteTurboEncode(matlab.int8(s.tolist()))
-                ss = np.array(ss).reshape(-1)
+                x = eng.lteSymbolModulate(ss, modem)
+                x = torch.tensor(x).reshape(-1)
+                x = torch.stack((x.real, x.imag), axis=0).reshape(2, -1).to(device)
+                L = x.shape[1]
+                maxcnt = math.ceil(L / N) * N
 
-                maxcnt = math.ceil(args.code_len / args.N)
-                yy = torch.zeros(args.code_len, device=device).float()
+                s1 = torch.cat((x, x[:, :maxcnt-L]), dim=1)
+                s2 = torch.stack((s1[0].reshape(-1, N), s1[1].reshape(-1, N)), dim=1)
 
-                for each_block in range(maxcnt):
-                    s1 = torch.zeros(1, args.N, device=device).float()
-                    s1[0, 0:min(args.N, args.code_len - each_block * args.N)] = torch.from_numpy(
-                        ss[each_block * args.N:min(args.N * (each_block + 1), args.code_len)]).to(device)
-                    s1 = s1.reshape(1, 1, -1)
-                    r = encoder(s1, snr, 1, mode='infer')
-                    recover_s = decoder(r)
-                    yy[each_block * args.N:min(args.N * (each_block + 1), args.code_len)] = recover_s[0, 0, 0:min(args.N, args.code_len - each_block * args.N)]
+                r = encoder(s2, snr, 1, mode='infer')
+                recover_s = decoder(r)
 
-                yy = (yy-0.5)*10  # map [0, 1] -> [-x, x] for lteTurboDecode
-                s_hat = eng.lteTurboDecode(matlab.double(yy.tolist()))
+                z = recover_s[:, 0, :].reshape(-1)[:L] + 1j * recover_s[:, 1, :].reshape(-1)[:L]
+                yy = eng.lteSymbolDemodulate(matlab.double(z.tolist(), is_complex=True), modem, 'Soft')
+                s_hat = eng.lteTurboDecode(yy)
                 s_hat = np.array(s_hat).reshape(-1)
                 ber += np.sum(s != s_hat[:args.len])
 
@@ -129,17 +125,21 @@ def cnn_test(args, bers):
     eng.quit()
     if not os.path.exists('./data'):
         os.mkdir('./data')
-    np.savez('./data/cnn_' + str(args.modem_num), snr=SNR, ber=np.array(BER))
-    print("%s.npz is saved" % ('cnn_' + str(args.modem_num)))
+    np.savez('./data/cnn_' + args.channel_mode+'_' + str(args.modem_num), snr=SNR, ber=np.array(BER))
+    print("%s.npz is saved" % ('cnn_' + args.channel_mode+'_' + str(args.modem_num)))
 
 
 if __name__ == '__main__':
     args = get_args()
-    trains, tests, vals, bers = loaddata()
-    if args.curve == 'unquantized':
-        baseline(args, bers, "unquantized")
-    elif args.curve == 'quantized':
-        baseline(args, bers, "quantized")
-    elif args.curve == 'cnn':
-        cnn_test(args, bers)
+    bers = np.random.randint(0, 2, [10, 6144])
+    args.curve = 'quantized'
+    baseline(args, bers, "quantized")
+    #args.curve = 'cnn'
+    #cnn_test(args, bers)
+    #if args.curve == 'unquantized':
+    #    baseline(args, bers, "unquantized")
+    #elif args.curve == 'quantized':
+    #    baseline(args, bers, "quantized")
+    #elif args.curve == 'cnn':
+    #    cnn_test(args, bers)
 

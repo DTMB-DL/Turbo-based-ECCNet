@@ -7,17 +7,25 @@ import os
 from setting.setting import device
 from tools.logger import Logger
 from tools.parse import *
+import matlab.engine
 
+def get_modem(num):
+    if num == 4:
+        return 'QPSK', np.sqrt(2)
+    elif num == 16:
+        return '16QAM', np.sqrt(10)
+    elif num == 64:
+        return '64QAM', np.sqrt(42)
 
 def train(args, trains, vals):
 
-    snr = args.snr + 10 * np.log10(np.log2(args.modem_num) / (5*args.G) / 3)
+    snr = args.snr
     logger = Logger()
 
     train_dataloader = DataLoader(dataset=Mydataset(trains), batch_size=args.batch_size, shuffle=True)
     val_dataloader = DataLoader(dataset=Mydataset(vals), batch_size=args.batch_size, shuffle=True)
 
-    encoder = Encoder(G=args.G, K=args.K, modem_num=args.modem_num)
+    encoder = Encoder(G=args.G, K=args.K, modem_num=args.modem_num, channel_mode=args.channel_mode)
     decoder = Decoder(G=args.G, K=args.K, modem_num=args.modem_num)
     encoder.to(device)
     decoder.to(device)
@@ -30,7 +38,7 @@ def train(args, trains, vals):
     encoder.eval()
     decoder.eval()
 
-    best_ser = 99999999
+    best_loss = 99999999
 
     for epoch in range(args.epoch):
         ac_T = (epoch+1) * args.unit_T
@@ -38,12 +46,13 @@ def train(args, trains, vals):
         decoder.train()
         loss_decoder = []
         for idx, train_datas in enumerate(train_dataloader):
-            s = train_datas.reshape(args.batch_size, 1, -1).float()
+            s = train_datas.reshape(args.batch_size, 2, -1).float()
+
             r = encoder(s, snr, ac_T, mode='infer')
             recover_s = decoder(r)
 
             optimizer_decoder.zero_grad()
-            criterion = torch.nn.BCEWithLogitsLoss()
+            criterion = torch.nn.MSELoss()
             BCE_loss = criterion(recover_s, s)
             BCE_loss.backward()
             optimizer_decoder.step()
@@ -57,12 +66,13 @@ def train(args, trains, vals):
         encoder.train()
         loss_encoder = []
         for idx, train_datas in enumerate(train_dataloader):
-            s = train_datas.reshape(args.batch_size, 1, -1).float()
+            s = train_datas.reshape(args.batch_size, 2, -1).float()
+
             r = encoder(s, snr, ac_T, mode='train')
             recover_s = decoder(r)
 
             optimizer_encoder.zero_grad()
-            criterion = torch.nn.BCEWithLogitsLoss()
+            criterion = torch.nn.MSELoss()
             BCE_loss = criterion(recover_s, s)
             BCE_loss.backward()
             optimizer_encoder.step()
@@ -75,53 +85,51 @@ def train(args, trains, vals):
         ''' =============  testing the whole system (train dataset and val dataset)============='''
         loss_system_val = []
         loss_system_train = []
-        SER_val = 0.0
-        SER_train = 0.0
 
         with torch.no_grad():
             for idx, train_datas in enumerate(train_dataloader):
-                s = train_datas.reshape(args.batch_size, 1, -1).float()
+                s = train_datas.reshape(args.batch_size, 2, -1).float()
+
                 r = encoder(s, snr, ac_T, mode='infer')
                 recover_s = decoder(r)
 
-                criterion = torch.nn.BCEWithLogitsLoss()
+                criterion = torch.nn.MSELoss()
                 BCE_loss = criterion(recover_s, s)
                 loss_system_train.append(BCE_loss.item())
-                SER_train += torch.sum(recover_s.round().int() != s.int()).float()
+
 
             for idx, val_datas in enumerate(val_dataloader):
-                s = val_datas.reshape(args.batch_size, 1, -1).float()
+                s = val_datas.reshape(args.batch_size, 2, -1).float()
+
                 r = encoder(s, snr, ac_T, mode='infer')
                 recover_s = decoder(r)
 
-                criterion = torch.nn.BCEWithLogitsLoss()
+                criterion = torch.nn.MSELoss()
                 BCE_loss = criterion(recover_s, s)
                 loss_system_val.append(BCE_loss.item())
-                SER_val += torch.sum(recover_s.round().int() != s.int()).float()
 
-        SER_train /= args.train_cut * args.N
-        SER_val /= args.val_cut * args.N
+
         print("epoch [%d/%d]: system loss of train is %f || and SER of train is %f " % (
-            epoch + 1, args.epoch, np.mean(np.array(loss_system_train)), SER_train))
+            epoch + 1, args.epoch, np.mean(np.array(loss_system_train)), 0.0))
         print("epoch [%d/%d]: system loss is val %f || and SER of val is %f " % (
-            epoch + 1, args.epoch, np.mean(np.array(loss_system_val)), SER_val))
+            epoch + 1, args.epoch, np.mean(np.array(loss_system_val)), 0.0))
 
         logger.save_one_epoch(np.mean(np.array(loss_encoder)), np.mean(np.array(loss_decoder)),
-                              np.mean(np.array(loss_system_train)), SER_train, np.mean(np.array(loss_system_val)),
-                              SER_val)
+                              np.mean(np.array(loss_system_train)), np.array([0]), np.mean(np.array(loss_system_val)),
+                              np.array([0]))
 
-        if SER_val < best_ser:
-            best_ser = SER_val
-            if not os.path.exists('data/model_cnn_'+str(args.modem_num)):
-                os.mkdir('data/model_cnn_'+str(args.modem_num))
-            torch.save(encoder, 'data/model_cnn_' + str(args.modem_num) + '/best_encoder.pth')
-            torch.save(decoder, 'data/model_cnn_' + str(args.modem_num) + '/best_decoder.pth')
+        if np.mean(np.array(loss_system_val)) < best_loss:
+            best_loss = np.mean(np.array(loss_system_val))
+            path = 'data/model_qpsk2_cnn_'+args.channel_mode+'_'+str(args.modem_num)
+            if not os.path.exists(path):
+                os.mkdir(path)
+            torch.save(encoder, path + '/best_encoder.pth')
+            torch.save(decoder, path + '/best_decoder.pth')
 
 
 def test(args, tests):
-
     test_dataloader = DataLoader(dataset=Mydataset(tests), batch_size=args.batch_size, shuffle=True, num_workers=0)
-    path = 'data/model_cnn_'+str(args.modem_num)
+    path = 'data/model_cnn_'+args.channel_mode+'_'+str(args.modem_num)
     encoder = torch.load(path + '/best_encoder.pth')
     decoder = torch.load(path + '/best_decoder.pth')
     encoder.to(device)
@@ -135,24 +143,20 @@ def test(args, tests):
 
     for idx in range(len(SNR)):
         loss_system_test = []
-        BER_test = 0.0
-        snr = SNR[idx] + 10 * np.log10(np.log2(args.modem_num) / (5*args.G) / 3)
+        snr = SNR[idx]
         with torch.no_grad():
             for idx, test_datas in enumerate(test_dataloader):
+                s = test_datas.reshape(args.batch_size, 2, -1).float()
 
-                s = test_datas.reshape(args.batch_size, 1, -1).float()
                 r = encoder(s, snr, 1, mode='infer')
                 recover_s = decoder(r)
 
-                criterion = torch.nn.BCEWithLogitsLoss()
+                criterion = torch.nn.MSELoss()
                 BCE_loss = criterion(recover_s, s)
                 loss_system_test.append(BCE_loss.item())
-                BER_test += torch.sum(recover_s.round().int() != s.int()).float()
 
         loss_system_test = np.mean(np.array(loss_system_test))
-        BER_test /= args.test_cut * args.N
         Loss.append(loss_system_test)
-        BER.append(BER_test)
 
     print("loss of awgn channel is:", Loss)
     print("BER of awgn channel is:", BER)
@@ -164,18 +168,13 @@ def test(args, tests):
     plt.legend(loc='best')
     plt.savefig("loss_SNR.jpg")
 
-    plt.figure(1)
-    plt.title('BER-SNR')
-    plt.plot(SNR, BER, label='awgn')
-    plt.legend(loc='best')
-
-    plt.savefig("BER_SNR_CNN_"+str(args.modem_num)+".jpg")
+    plt.savefig("BER_SNR_CNN_"+args.channel_mode+'_'+str(args.modem_num)+".jpg")
     plt.show()
 
 
 if __name__ == "__main__":
     args = get_args()
-    trains, tests, vals, bers = loaddata()
+    trains, tests, vals, bers = loaddata(path='./data/gen_data.npz')
     if args.mode == 'train':
         train(args, trains, vals)
     elif args.mode == 'test':
