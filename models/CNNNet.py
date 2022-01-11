@@ -80,12 +80,13 @@ class ResSEBlock(nn.Module):
 
 
 class Encoder(nn.Module):
-    def __init__(self, G=2, K=20, N=64, qua_bits=1, modem_num=4):
+    def __init__(self, G=3, N=64, qua_bits=1, modem_num=4, channel_mode='awgn'):
         super(Encoder, self).__init__()
         self.k = int(math.log2(modem_num))
         self.G = G
+        self.channel_mode = channel_mode
         self.encoder = nn.Sequential(
-            nn.Conv1d(1, 128, 11, stride=1, padding=5),
+            nn.Conv1d(2, 128, 11, stride=1, padding=5),
             nn.BatchNorm1d(128),
             nn.ReLU(),
             nn.Conv1d(128, 64, 5, stride=1, padding=2),
@@ -95,15 +96,15 @@ class Encoder(nn.Module):
             nn.BatchNorm1d(32),
         )
         self.shortcut = nn.Sequential(
-            nn.Conv1d(1, 32, 1),
+            nn.Conv1d(2, 32, 1),
             nn.BatchNorm1d(32),
         )
         self.timedis = nn.Sequential(
             nn.ReLU(),
-            TimeDistributed(nn.Linear(32 * self.k, 2 * G), True),
+            TimeDistributed(nn.Linear(32, 2*G), True),
             nn.BatchNorm1d(N // self.k),
         )
-        self.quantization = Quantization(qua_bits, modem_num)
+        self.quantization = Quantization(qua_bits)
 
         for m in self.modules():
             if isinstance(m, (nn.Conv1d, nn.Linear)):
@@ -116,11 +117,13 @@ class Encoder(nn.Module):
         B = x.shape[0]
         out1 = self.encoder(x)
         out1_ori = self.shortcut(x)
-        out = self.timedis((out1 + out1_ori).reshape(B, 32 * self.k, -1).transpose(1, 2).contiguous()).reshape(B, 2, -1)
+        out = self.timedis((out1 + out1_ori).reshape(B, 32, -1).transpose(1, 2).contiguous()).reshape(B, 2, -1)
 
         xx = torch.cat((out[:, 0, :], out[:, 1, :])).reshape(2, B, -1)
         tx = pulse_shaping(xx, ISI=self.G, rate=5 * self.G)
-        [ry, sigma2] = awgn_channel(tx, snr)
+        [ry, sigma2] = channel(self.channel_mode, tx,
+                               snr + 10 * math.log10(self.k / (self.G * tx.shape[2] / xx.shape[2]) / 3),
+                               rate=5 * self.G)
         y = matched_filtering(ry, ISI=self.G, rate=5 * self.G)
 
         r = self.quantization(y, mode, ac_T)
@@ -133,9 +136,8 @@ class Encoder(nn.Module):
 
 
 class Decoder(nn.Module):
-    def __init__(self, G=2, K=20, N=64, modem_num=4):
+    def __init__(self, G=3):
         super(Decoder, self).__init__()
-        self.k = int(math.log2(modem_num))
         self.decoder = nn.Sequential(
             nn.Conv1d(2, 256, 5, stride=1, padding=2),
             nn.BatchNorm1d(256),
@@ -146,16 +148,14 @@ class Decoder(nn.Module):
             ResSEBlock(64, 64, 2),
             ResSEBlock(64, 32, 2),
             ResSEBlock(32, 32, 1),
-            nn.Conv1d(32, K, 5, stride=1, padding=2),
-            nn.BatchNorm1d(K),
+            nn.Conv1d(32, 20, 5, stride=1, padding=2),
+            nn.BatchNorm1d(20),
             nn.ReLU(),
         )
         self.timedis = nn.Sequential(
-            TimeDistributed(nn.Linear(G * K, self.k), batch_first=True),
-            nn.Sigmoid(),
+            TimeDistributed(nn.Linear(G * 20, 2), batch_first=True),
         )
         self.G = G
-        self.K = K
 
         for m in self.modules():
             if isinstance(m, (nn.Conv1d, nn.Linear)):
@@ -166,11 +166,23 @@ class Decoder(nn.Module):
 
     def forward(self, x):
         B = x.shape[0]
-        out = self.decoder(x).reshape(B, self.K * self.G, -1).transpose(1, 2).contiguous()
-        out = self.timedis(out).reshape(B, 1, -1)
+        out = self.decoder(x).reshape(B, 20 * self.G, -1).transpose(1, 2).contiguous()
+        out = self.timedis(out).reshape(B, 2, -1)
         return out
 
     def __call__(self, x):
         return self.forward(x)
 
 
+if __name__ == "__main__":
+    encoder = Encoder(modem_num=16)
+    decoder = Decoder(modem_num=16)
+    encoder_cnt = 0
+    for param in encoder.parameters():
+        encoder_cnt += param.view(-1).size()[0]
+    print(encoder_cnt)
+    decoder_cnt = 0
+    for param in decoder.parameters():
+        decoder_cnt += param.view(-1).size()[0]
+    print(decoder_cnt)
+    print("total:", encoder_cnt+decoder_cnt)

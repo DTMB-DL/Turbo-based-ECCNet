@@ -5,27 +5,11 @@ import math
 from traditional import *
 from setting.setting import *
 from tools.parse import *
+from tools.utils import *
 from models import *
-from data.mydataset import *
 import os
 import torch
 
-
-def get_snr(start, step, end):
-    total_num = round((end-start)/step+1)
-    return np.linspace(start, end, total_num)
-
-
-def get_modem(num):
-    if num == 4:
-        return 'QPSK', np.sqrt(2)
-    elif num == 16:
-        return '16QAM', np.sqrt(10)
-
-
-def start_matlab():
-    eng = matlab.engine.start_matlab()
-    return eng
 
 
 def baseline(args, bers, mode="unquantized"):
@@ -52,13 +36,18 @@ def baseline(args, bers, mode="unquantized"):
             y = matched_filtering(ry, ISI=1, rate=5 * args.G)
 
             if mode == 'quantized':
-                args.qua_bit = 1
-                r = quantize(y, args.qua_bit, args.modem_num)
-                r /= torch.tensor(base) / (args.qua_bit+1)
-                # r /= 0.903587241348152  # 3bit
-                # r /= 0.843348091924942  # 4bit
+                r = quantize(y, args.qua_bit)
+                if args.qua_bit == 1:
+                    r /= torch.tensor(base) / 2
+                elif args.qua_bit == 2:
+                    r /= torch.tensor(base) / 3
+                elif args.qua_bit == 3:
+                    r /= 0.903587241348152  # 3bit
+                elif args.qua_bit == 4:
+                    r /= 0.843348091924942  # 4bit
             elif mode == 'unquantized':
                 r = y
+
             z = r[0][0] + 1j * r[1][0]
             s2 = eng.lteSymbolDemodulate(matlab.double(z.tolist(), is_complex=True), modem, 'Soft')
             s_hat = eng.lteTurboDecode(s2)
@@ -74,7 +63,6 @@ def baseline(args, bers, mode="unquantized"):
         os.mkdir('./data')
     np.savez('./data/' + mode + '_' + args.channel_mode + '_' + str(args.modem_num), snr=SNR, ber=np.array(BER))
     print("%s.npz is saved" % (mode + '_' + args.channel_mode + '_' + str(args.modem_num)))
-
 
 
 def cnn_test(args, bers):
@@ -131,15 +119,11 @@ def cnn_test(args, bers):
 
 if __name__ == '__main__':
     args = get_args()
-    bers = np.random.randint(0, 2, [10, 6144])
-    args.curve = 'quantized'
-    baseline(args, bers, "quantized")
-    #args.curve = 'cnn'
-    #cnn_test(args, bers)
-    #if args.curve == 'unquantized':
-    #    baseline(args, bers, "unquantized")
-    #elif args.curve == 'quantized':
-    #    baseline(args, bers, "quantized")
-    #elif args.curve == 'cnn':
-    #    cnn_test(args, bers)
+    bers = np.random.randint(0, 2, [args.ber_len, args.len])
+    if args.curve == 'unquantized':
+       baseline(args, bers, "unquantized")
+    elif args.curve == 'quantized':
+       baseline(args, bers, "quantized")
+    elif args.curve == 'cnn':
+       cnn_test(args, bers)
 

@@ -6,9 +6,9 @@ def get_args():
     parser = argparse.ArgumentParser()
 
     '''=============================  generate data opt  ==============================='''
-    parser.add_argument('-train_len', type=int, default=150, help='train_len * len is total training length.')
-    parser.add_argument('-test_len', type=int, default=100, help='test_len * len is total testing length.')
-    parser.add_argument('-val_len', type=int, default=50, help='val_len * len is total validating length.')
+    parser.add_argument('-train_len', type=int, default=600, help='train_len * len is total training length.')
+    parser.add_argument('-test_len', type=int, default=400, help='test_len * len is total testing length.')
+    parser.add_argument('-val_len', type=int, default=200, help='val_len * len is total validating length.')
     parser.add_argument('-ber_len', type=int, default=100, help='ber_len * len is final testing length.')
 
     parser.add_argument('-len', type=int, default=6144, help='total length of each piece.')
@@ -24,24 +24,25 @@ def get_args():
     parser.add_argument('-mode', choices=['train', 'test'], default='train', help='train or test')
 
     parser.add_argument('-G', type=int, default=3, help='G in front layer')
-    parser.add_argument('-K', type=int, default=20, help='K in backward layer')
-    parser.add_argument('-N', type=int, default=64, help='length of block')
+    parser.add_argument('-N', type=int, default=64, help='length of block(bit)')
     parser.add_argument('-modem_num', type=int, default=4, help='number of modulation order. decide ISI.')
+    parser.add_argument('-qua_bit', type=int, default=1, help='number of quantization bit.')
 
     '''=========================== training opt =============================='''
     parser.add_argument('-unit_T', type=int, default=5, help='increasing number of T for each epoch')
 
     parser.add_argument('-lr_encoder', type=float, default=5e-4, help='init learning rate')
-    parser.add_argument('-lr_decoder', type=float, default=1e-3, help='init learning rate')
+    parser.add_argument('-lr_decoder', type=float, default=5e-4, help='init learning rate')
     parser.add_argument('-lr_step', type=int, default=25, help='change step of learning rate')
 
-    parser.add_argument('-snr', type=float, default=3.0, help='E_s/n_0 for training.')
-    parser.add_argument('-snr_start', type=float, default=-2.0, help='start value of Eb/n0 for testing')
-    parser.add_argument('-snr_step', type=float, default=1.0, help='step value of Eb/n0 for testing')
-    parser.add_argument('-snr_end', type=float, default=10.0, help='end value of Eb/n0 for testing')
+    parser.add_argument('-snr', type=float, default=5.0, help='E_s/n_0 for training.')
+    parser.add_argument('-snr_start', type=float, default=-1.0, help='start value of Eb/n0 for testing')
+    parser.add_argument('-snr_step', type=float, default=0.5, help='step value of Eb/n0 for testing')
+    parser.add_argument('-snr_end', type=float, default=3.0, help='end value of Eb/n0 for testing')
 
     '''=========================== choose main opt =============================='''
     parser.add_argument('-curve', choices=['unquantized', 'quantized', 'cnn'], default='unquantized', help='for main')
+    parser.add_argument('-channel_mode', choices=['awgn', 'fading'], default='awgn', help='for channel')
 
     args = parser.parse_args()
     return args

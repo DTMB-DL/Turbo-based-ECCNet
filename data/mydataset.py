@@ -17,11 +17,10 @@ class Mydataset(data.Dataset):
         return len(self.datasets)
 
 
-def loaddata(path='./data/gen_data.npz'):
+def loaddata(path='./data/gen_data_4.npz'):
     data = np.load(path)
     trains = data["trains"]
     vals = data["vals"]
     tests = data["tests"]
-    bers = data["bers"]
-    return trains, tests, vals, bers
+    return trains, tests, vals
 

@@ -3,49 +3,63 @@ import matlab
 import math
 import matlab.engine
 from tools.parse import *
+from tools.utils import *
 
 
-def start_matlab():
-    eng = matlab.engine.start_matlab()
-    return eng
-
-
-def generate_data(args):
+def generate_data(args):  # each block is N=64bit, M=32symbols for QPSK, and M=64symbols for 16QAM
     eng = start_matlab()
     train_dataset = np.random.randint(0, 2, [args.train_len, args.len])
     val_dataset = np.random.randint(0, 2, [args.val_len, args.len])
     test_dataset = np.random.randint(0, 2, [args.test_len, args.len])
-    bers = np.random.randint(0, 2, [args.ber_len, args.len])
-
+    modem, base = get_modem(args.modem_num)
+    N = args.N // int(np.log2(args.modem_num))
     trains = []
     vals = []
     tests = []
     for k in range(args.train_len):
         data = eng.lteTurboEncode(matlab.int8(train_dataset[k].tolist()))
-        data = np.array(data).reshape(args.code_len)
-        maxcnt = math.ceil(args.code_len / args.N)
-        for j in range(maxcnt):
-            ones = np.zeros(args.N)
-            ones[0:min(args.N, args.code_len - j * args.N)] = data[j * args.N:min((j + 1) * args.N, args.code_len)]
-            trains.append(ones)
+        x = eng.lteSymbolModulate(data, modem)
+        x = np.array(x).reshape(-1)
+        x = np.stack((x.real, x.imag), axis=0).reshape(2, -1)
+
+        L = x.shape[1]
+        maxcnt = math.ceil(L / N) * N
+
+        s1 = np.concatenate((x, x[:, :maxcnt - L]), axis=1)
+        s2 = np.stack((s1[0].reshape(-1, N), s1[1].reshape(-1, N)), axis=1)
+        for each in range(len(s2)):
+            trains.append(s2[each])
+    trains = np.array(trains)
 
     for k in range(args.val_len):
         data = eng.lteTurboEncode(matlab.int8(val_dataset[k].tolist()))
-        data = np.array(data).reshape(args.code_len)
-        maxcnt = math.ceil(args.code_len / args.N)
-        for j in range(maxcnt):
-            ones = np.zeros(args.N)
-            ones[0:min(args.N, args.code_len - j * args.N)] = data[j * args.N:min((j + 1) * args.N, args.code_len)]
-            vals.append(ones)
+        x = eng.lteSymbolModulate(data, modem)
+        x = np.array(x).reshape(-1)
+        x = np.stack((x.real, x.imag), axis=0).reshape(2, -1)
+
+        L = x.shape[1]
+        maxcnt = math.ceil(L / N) * N
+
+        s1 = np.concatenate((x, x[:, :maxcnt - L]), axis=1)
+        s2 = np.stack((s1[0].reshape(-1, N), s1[1].reshape(-1, N)), axis=1)
+        for each in range(len(s2)):
+            vals.append(s2[each])
+    vals = np.array(vals)
 
     for k in range(args.test_len):
         data = eng.lteTurboEncode(matlab.int8(test_dataset[k].tolist()))
-        data = np.array(data).reshape(args.code_len)
-        maxcnt = math.ceil(args.code_len / args.N)
-        for j in range(maxcnt):
-            ones = np.zeros(args.N)
-            ones[0:min(args.N, args.code_len - j * args.N)] = data[j * args.N:min((j + 1) * args.N, args.code_len)]
-            tests.append(ones)
+        x = eng.lteSymbolModulate(data, modem)
+        x = np.array(x).reshape(-1)
+        x = np.stack((x.real, x.imag), axis=0).reshape(2, -1)
+
+        L = x.shape[1]
+        maxcnt = math.ceil(L / N) * N
+
+        s1 = np.concatenate((x, x[:, :maxcnt - L]), axis=1)
+        s2 = np.stack((s1[0].reshape(-1, N), s1[1].reshape(-1, N)), axis=1)
+        for each in range(len(s2)):
+            tests.append(s2[each])
+    tests = np.array(tests)
 
     trains = trains[:args.train_cut]
     tests = tests[:args.test_cut]
@@ -54,10 +68,11 @@ def generate_data(args):
     import os
     if not os.path.exists('./data'):
         os.mkdir('./data')
-    np.savez('./data/gen_data', trains=trains, tests=tests, vals=vals, bers=bers)
+    np.savez('./data/gen_data_' + str(args.modem_num), trains=trains, tests=tests, vals=vals)
     eng.quit()
 
 
 if __name__ == "__main__":
     args = get_args()
+    args.modem_num = 16
     generate_data(args)
