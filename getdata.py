@@ -6,13 +6,13 @@ from tools.parse import *
 from tools.utils import *
 
 
-def generate_data(args):  # each block is N=64bit, M=32symbols for QPSK, and M=64symbols for 16QAM
+def generate_data(args):  # each block is N=16 symbols
     eng = start_matlab()
     train_dataset = np.random.randint(0, 2, [args.train_len, args.len])
     val_dataset = np.random.randint(0, 2, [args.val_len, args.len])
     test_dataset = np.random.randint(0, 2, [args.test_len, args.len])
     modem, base = get_modem(args.modem_num)
-    N = args.N // int(np.log2(args.modem_num))
+    N = args.N
     trains = []
     vals = []
     tests = []
@@ -74,5 +74,4 @@ def generate_data(args):  # each block is N=64bit, M=32symbols for QPSK, and M=6
 
 if __name__ == "__main__":
     args = get_args()
-    args.modem_num = 16
     generate_data(args)

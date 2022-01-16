@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import math
 from setting.setting import device
-__all__ = ['quantize', 'Quantization']
+__all__ = ['quantize', 'Quantization', 'HardQuantization']
 
 
 def Sigmoid(x, T):
@@ -50,6 +50,37 @@ def quantize(y, bits):  # uniform quantization
     for i in range(k):
         rr[r == i] = after_val[i]
     return rr
+
+
+class LowPass(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, x):
+        ctx.save_for_backward(x)
+        y = x.clone()
+        y[torch.where(x > 0)] = 1
+        y[torch.where(x < 0)] = -1
+        return y
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        x, = ctx.saved_tensors
+        mask = torch.ones_like(x)
+        mask[torch.where(torch.abs(x) > 1)] = 0
+        return grad_output * mask
+
+
+lowpass = LowPass.apply
+
+
+class HardQuantization(nn.Module):
+    def __init__(self):
+        super(HardQuantization, self).__init__()
+
+    def forward(self, x):
+        return lowpass(x)
+
+    def __call__(self, x):
+        return self.forward(x)
 
 
 class Quantization(nn.Module):

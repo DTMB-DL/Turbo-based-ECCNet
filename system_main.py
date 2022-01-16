@@ -11,7 +11,6 @@ import os
 import torch
 
 
-
 def baseline(args, bers, mode="unquantized"):
     eng = matlab.engine.start_matlab()
     eng.addpath('./traditional')
@@ -36,15 +35,8 @@ def baseline(args, bers, mode="unquantized"):
             y = matched_filtering(ry, ISI=1, rate=5 * args.G)
 
             if mode == 'quantized':
-                r = quantize(y, args.qua_bit)
-                if args.qua_bit == 1:
-                    r /= torch.tensor(base) / 2
-                elif args.qua_bit == 2:
-                    r /= torch.tensor(base) / 3
-                elif args.qua_bit == 3:
-                    r /= 0.903587241348152  # 3bit
-                elif args.qua_bit == 4:
-                    r /= 0.843348091924942  # 4bit
+                r = quantize(y, 1)
+                r /= torch.tensor(base)
             elif mode == 'unquantized':
                 r = y
 
@@ -72,14 +64,11 @@ def cnn_test(args, bers):
     SNR = get_snr(args.snr_start, args.snr_step, args.snr_end)  # range of SNR
     modem, base = get_modem(args.modem_num)
     B = bers.shape[0]
-    N = args.N // int(np.log2(args.modem_num))
+    N = args.N
     BER = []
-    encoder = torch.load(path + '/best_encoder.pth', map_location='cuda:0')
-    decoder = torch.load(path + '/best_decoder.pth', map_location='cuda:0')
-    encoder.to(device)
-    decoder.to(device)
-    encoder.eval()
-    decoder.eval()
+    autoencoder = torch.load(path + '/best_autoencoder.pth')
+    autoencoder.to(device)
+    autoencoder.eval()
 
     for snr in SNR:
         snrtmp = snr
@@ -97,10 +86,9 @@ def cnn_test(args, bers):
                 s1 = torch.cat((x, x[:, :maxcnt-L]), dim=1)
                 s2 = torch.stack((s1[0].reshape(-1, N), s1[1].reshape(-1, N)), dim=1)
 
-                r = encoder(s2, snr, 1, mode='infer')
-                recover_s = decoder(r)
+                r = autoencoder(s2, snr, 1, mode='infer')
 
-                z = recover_s[:, 0, :].reshape(-1)[:L] + 1j * recover_s[:, 1, :].reshape(-1)[:L]
+                z = r[:, 0, :].reshape(-1)[:L] + 1j * r[:, 1, :].reshape(-1)[:L]
                 yy = eng.lteSymbolDemodulate(matlab.double(z.tolist(), is_complex=True), modem, 'Soft')
                 s_hat = eng.lteTurboDecode(yy)
                 s_hat = np.array(s_hat).reshape(-1)

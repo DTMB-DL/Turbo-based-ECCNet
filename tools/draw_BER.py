@@ -9,7 +9,7 @@ if __name__ == '__main__':
     parser.add_argument('-ber_dir', type=str, default='../data',
                         help='dir of saved BER results(.npy). no "/" in final position.')
     parser.add_argument('-modem_num', type=int, default=16, help='number of modulation order')
-    parser.add_argument('-channel_mode', choices=['awgn', 'rayleigh'], default='awgn', help='for channel')
+    parser.add_argument('-channel_mode', choices=['awgn', 'fading'], default='awgn', help='for channel')
     args = parser.parse_args()
 
     unquantized = np.load(args.ber_dir + '/unquantized_' + args.channel_mode + '_' + str(args.modem_num) + '.npz')

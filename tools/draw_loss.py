@@ -10,21 +10,16 @@ if __name__ == '__main__':
     data = [[float(y) for y in x] for x in data]
     data = np.array(data)
 
-    encoder_loss = data[:, 0]
-    decoder_loss = data[:, 1]
-    epoch_loss_train = data[:, 2]
-    epoch_loss_val = data[:, 3]
+    autoencoder_loss = data[:, 0]
+    epoch_loss_train = data[:, 1]
+    epoch_loss_val = data[:, 2]
 
     epoch = np.arange(0, 100)
     plt.figure(0)
     plt.title('encoder loss')
-    plt.plot(epoch, encoder_loss)
+    plt.plot(epoch, autoencoder_loss)
 
     plt.figure(1)
-    plt.title('decoder loss')
-    plt.plot(epoch, decoder_loss)
-
-    plt.figure(2)
     plt.title('epoch loss')
     plt.plot(epoch, epoch_loss_train, label='train')
     plt.plot(epoch, epoch_loss_val, label='val')

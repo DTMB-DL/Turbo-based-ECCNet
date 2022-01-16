@@ -5,7 +5,7 @@ from models.quantization import *
 from setting.setting import device
 from traditional import *
 
-__all__ = ['Encoder', 'Decoder']
+__all__ = ['AutoEncoder']
 
 
 class TimeDistributed(nn.Module):
@@ -71,7 +71,8 @@ class ResSEBlock(nn.Module):
 
     def forward(self, x):
         x_shortcut = self.shortcut(x)
-        x_res = self.se(self.conv(x))
+        x_res = self.se(self.conv(x))  # with SE
+        # x_res = self.conv(x)  # without SE
         out = x_shortcut + x_res
         return out
 
@@ -80,11 +81,9 @@ class ResSEBlock(nn.Module):
 
 
 class Encoder(nn.Module):
-    def __init__(self, G=3, N=64, qua_bits=1, modem_num=4, channel_mode='awgn'):
+    def __init__(self, G=3, N=16):
         super(Encoder, self).__init__()
-        self.k = int(math.log2(modem_num))
         self.G = G
-        self.channel_mode = channel_mode
         self.encoder = nn.Sequential(
             nn.Conv1d(2, 128, 11, stride=1, padding=5),
             nn.BatchNorm1d(128),
@@ -102,42 +101,23 @@ class Encoder(nn.Module):
         self.timedis = nn.Sequential(
             nn.ReLU(),
             TimeDistributed(nn.Linear(32, 2*G), True),
-            nn.BatchNorm1d(N // self.k),
+            nn.BatchNorm1d(N),
         )
-        self.quantization = Quantization(qua_bits)
 
-        for m in self.modules():
-            if isinstance(m, (nn.Conv1d, nn.Linear)):
-                nn.init.xavier_uniform_(m.weight)
-            elif isinstance(m, nn.BatchNorm1d):
-                nn.init.constant_(m.weight, 1)
-                nn.init.constant_(m.bias, 0)
-
-    def forward(self, x, snr, ac_T, mode='train'):
-        B = x.shape[0]
+    def forward(self, x):
         out1 = self.encoder(x)
         out1_ori = self.shortcut(x)
-        out = self.timedis((out1 + out1_ori).reshape(B, 32, -1).transpose(1, 2).contiguous()).reshape(B, 2, -1)
+        out = self.timedis((out1 + out1_ori).reshape(x.shape[0], 32, -1).transpose(1, 2).contiguous()).reshape(x.shape[0], 2, -1)
+        return out
 
-        xx = torch.cat((out[:, 0, :], out[:, 1, :])).reshape(2, B, -1)
-        tx = pulse_shaping(xx, ISI=self.G, rate=5 * self.G)
-        [ry, sigma2] = channel(self.channel_mode, tx,
-                               snr + 10 * math.log10(self.k / (self.G * tx.shape[2] / xx.shape[2]) / 3),
-                               rate=5 * self.G)
-        y = matched_filtering(ry, ISI=self.G, rate=5 * self.G)
-
-        r = self.quantization(y, mode, ac_T)
-        r = torch.cat((r[0], r[1]), 1).reshape(B, 2, -1).to(device)
-
-        return r
-
-    def __call__(self, x, snr, ac_T, mode='train'):
-        return self.forward(x, snr, ac_T, mode)
+    def __call__(self, x):
+        return self.forward(x)
 
 
 class Decoder(nn.Module):
     def __init__(self, G=3):
         super(Decoder, self).__init__()
+        self.G = G
         self.decoder = nn.Sequential(
             nn.Conv1d(2, 256, 5, stride=1, padding=2),
             nn.BatchNorm1d(256),
@@ -155,7 +135,26 @@ class Decoder(nn.Module):
         self.timedis = nn.Sequential(
             TimeDistributed(nn.Linear(G * 20, 2), batch_first=True),
         )
+
+    def forward(self, x):
+        out = self.decoder(x).reshape(x.shape[0], 20 * self.G, -1).transpose(1, 2).contiguous()
+        out = self.timedis(out).reshape(x.shape[0], 2, -1)
+        return out
+
+    def __call__(self, x):
+        return self.forward(x)
+
+
+class AutoEncoder(nn.Module):
+    def __init__(self, G=3, N=16, qua_bits=1, modem_num=4, channel_mode='awgn'):
+        super(AutoEncoder, self).__init__()
+        self.encoder = Encoder(G, N)
+        self.decoder = Decoder(G)
+        self.channel_mode = channel_mode
+        self.k = int(math.log2(modem_num))
         self.G = G
+
+        self.quantization = Quantization(qua_bits)
 
         for m in self.modules():
             if isinstance(m, (nn.Conv1d, nn.Linear)):
@@ -164,25 +163,18 @@ class Decoder(nn.Module):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
 
-    def forward(self, x):
-        B = x.shape[0]
-        out = self.decoder(x).reshape(B, 20 * self.G, -1).transpose(1, 2).contiguous()
-        out = self.timedis(out).reshape(B, 2, -1)
+    def forward(self, x, snr, ac_T, mode='train'):
+        out = self.encoder(x)
+
+        xx = torch.cat((out[:, 0, :], out[:, 1, :])).reshape(2, x.shape[0], -1)
+        tx = pulse_shaping(xx, ISI=self.G, rate=5 * self.G)
+        [ry, sigma2] = channel(self.channel_mode, tx,
+                               snr + 10 * math.log10(self.k / (self.G * tx.shape[2] / xx.shape[2]) / 3),
+                               rate=5 * self.G)
+        y = matched_filtering(ry, ISI=self.G, rate=5 * self.G)
+        r = self.quantization(y, mode, ac_T)
+        r = torch.cat((r[0], r[1]), 1).reshape(x.shape[0], 2, -1).to(device)
+
+        out = self.decoder(r)
+
         return out
-
-    def __call__(self, x):
-        return self.forward(x)
-
-
-if __name__ == "__main__":
-    encoder = Encoder(modem_num=16)
-    decoder = Decoder(modem_num=16)
-    encoder_cnt = 0
-    for param in encoder.parameters():
-        encoder_cnt += param.view(-1).size()[0]
-    print(encoder_cnt)
-    decoder_cnt = 0
-    for param in decoder.parameters():
-        decoder_cnt += param.view(-1).size()[0]
-    print(decoder_cnt)
-    print("total:", encoder_cnt+decoder_cnt)

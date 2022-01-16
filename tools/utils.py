@@ -12,7 +12,7 @@ def get_modem(num):
     if num == 4:
         return 'QPSK', np.sqrt(2)
     elif num == 16:
-        return '16QAM', np.sqrt(10)
+        return '16QAM', np.sqrt(10)/2
 
 
 def start_matlab():
