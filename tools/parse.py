@@ -24,7 +24,7 @@ def get_args():
     parser.add_argument('-mode', choices=['train', 'test'], default='train', help='train or test')
 
     parser.add_argument('-G', type=int, default=3, help='G in front layer')
-    parser.add_argument('-N', type=int, default=16, help='length of block(bit)')
+    parser.add_argument('-N', type=int, default=16, help='length of block(symbols)')
     parser.add_argument('-modem_num', type=int, default=4, help='number of modulation order. decide ISI.')
 
     '''=========================== training opt =============================='''
