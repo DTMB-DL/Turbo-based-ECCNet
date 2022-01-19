@@ -68,7 +68,7 @@ Modifiable Parameters:
 
 ##### complete command:
 ```cmd
-python getdata.py -train_len 300 -test_len 200 -val_len 100 -ber_len 100 -len 6144 -code_len 18444 -train_cut 40000 -test_cut 25000 -val_cut 10000
+python getdata.py -train_len 300 -test_len 200 -val_len 100 -ber_len 100 -len 6144 -code_len 18444 -train_cut 40000 -test_cut 25000 -val_cut 10000 -modem_num 4
 ```
 
 
