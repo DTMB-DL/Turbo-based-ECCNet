@@ -4,7 +4,7 @@ from traditional.r_filter import *
 __all__ = ["pulse_shaping"]
 
 
-def pulse_shaping(input_symbols, alpha=0.5, delay=5, rate=5, rs=8000, gain=1, ISI=1):
+def pulse_shaping(input_symbols, alpha=0.5, delay=5, rate=5, rs=8000000, gain=1, ISI=1):
     assert input_symbols.dim() == 3 and input_symbols.shape[0] == 2  # (2, Batch_size, L)
     fs = rs*rate
     phi_I = gain * input_symbols[0]
