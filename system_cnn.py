@@ -1,7 +1,7 @@
 import torch
 import numpy as np
 from torch.utils.data import DataLoader
-from models.CNNNet import *
+from models.ECCNet import *
 from data.mydataset import *
 import os
 from setting.setting import device
@@ -79,13 +79,14 @@ def train(args, trains, vals):
             path = 'data/model_cnn_'+args.channel_mode+'_'+str(args.modem_num)
             if not os.path.exists(path):
                 os.mkdir(path)
-            torch.save(autoencoder, path + '/best_autoencoder.pth')
+            torch.save(autoencoder.state_dict(), path + '/best_autoencoder.pth')
 
 
 def test(args, tests):
     test_dataloader = DataLoader(dataset=Mydataset(tests), batch_size=args.batch_size, shuffle=True, num_workers=0)
-    path = 'data/model_cnn_'+args.channel_mode+'_'+str(args.modem_num)
-    autoencoder = torch.load(path + '/best_autoencoder.pth')
+    path = args.model_path
+    autoencoder = AutoEncoder(G=args.G, N=args.N, qua_bits=1, modem_num=args.modem_num, channel_mode=args.channel_mode)
+    autoencoder.load_state_dict(torch.load(path + '/best_autoencoder.pth'))
     autoencoder.to(device)
     autoencoder.eval()
 

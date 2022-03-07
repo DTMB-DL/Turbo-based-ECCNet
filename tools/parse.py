@@ -41,6 +41,7 @@ def get_args():
     '''=========================== choose main opt =============================='''
     parser.add_argument('-curve', choices=['unquantized', 'quantized', 'cnn'], default='cnn', help='for main')
     parser.add_argument('-channel_mode', choices=['awgn', 'fading'], default='awgn', help='for channel')
+    parser.add_argument('-model_path', type=str, default='./data/model_cnn_awgn_4', help='model path for test')
 
     args = parser.parse_args()
     return args

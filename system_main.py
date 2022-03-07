@@ -58,7 +58,7 @@ def baseline(args, bers, mode="unquantized"):
 
 
 def cnn_test(args, bers):
-    path = 'data/model_cnn_'+args.channel_mode+'_'+str(args.modem_num)
+    path = args.model_path
     eng = matlab.engine.start_matlab()
     eng.addpath('./traditional')
     SNR = get_snr(args.snr_start, args.snr_step, args.snr_end)  # range of SNR
@@ -66,7 +66,8 @@ def cnn_test(args, bers):
     B = bers.shape[0]
     N = args.N
     BER = []
-    autoencoder = torch.load(path + '/best_autoencoder.pth')
+    autoencoder = AutoEncoder(G=args.G, N=args.N, qua_bits=1, modem_num=args.modem_num, channel_mode=args.channel_mode)
+    autoencoder.load_state_dict(torch.load(path + '/best_autoencoder.pth'))
     autoencoder.to(device)
     autoencoder.eval()
 

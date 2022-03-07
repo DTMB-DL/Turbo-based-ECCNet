@@ -1,2 +1,2 @@
 from .quantization import *
-from .CNNNet import *
+from .ECCNet import *
