@@ -1,5 +1,18 @@
 # README
-This is the implementation of paper “Error Correction Coding for One-Bit Quantization with CNN-Based AutoEncoder”.
+This is the implementation of paper “[Error Correction Coding for One-Bit Quantization with CNN-Based AutoEncoder](https://ieeexplore.ieee.org/document/9791347)”.
+
+## 0、Citation
+```
+@ARTICLE{9791347,
+  author={Zeng, Rui and Lu, Zhilin and Wang, Jintao and Song, Jian},
+  journal={IEEE Communications Letters}, 
+  title={Error Correction Coding for One-Bit Quantization with CNN-Based AutoEncoder}, 
+  year={2022},
+  volume={},
+  number={},
+  pages={1-1},
+  doi={10.1109/LCOMM.2022.3181502}}
+```
 
 ## 1、Requirements
 This project involves the joint programming of `MATLAB` and `Python`, and thus package `matlab.engine` is need for
