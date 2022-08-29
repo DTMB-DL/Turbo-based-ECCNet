@@ -6,11 +6,11 @@ This is the implementation of paper “[Error Correction Coding for One-Bit Quan
 @ARTICLE{9791347,
   author={Zeng, Rui and Lu, Zhilin and Wang, Jintao and Song, Jian},
   journal={IEEE Communications Letters}, 
-  title={Error Correction Coding for One-Bit Quantization with CNN-Based AutoEncoder}, 
+  title={Error Correction Coding for One-Bit Quantization With CNN-Based AutoEncoder}, 
   year={2022},
-  volume={},
-  number={},
-  pages={1-1},
+  volume={26},
+  number={8},
+  pages={1814-1818},
   doi={10.1109/LCOMM.2022.3181502}}
 ```
 
